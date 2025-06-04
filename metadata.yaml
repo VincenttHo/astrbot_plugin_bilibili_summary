@@ -1,0 +1,6 @@
+name: astrbot_plugin_bilibili_summary
+desc: Bilibili视频字幕总结插件，获取B站视频字幕并使用LLM生成内容总结
+help: 输入 /bs [视频链接或ID] 使用LLM总结的bilibili视频，支持BV号、AV号、完整链接、短链接
+version: v1.0.0
+author: VincenttHo
+repo: https://github.com/VincenttHo/astrbot_plugin_bilibili_summary

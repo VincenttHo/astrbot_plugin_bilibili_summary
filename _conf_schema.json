@@ -1,0 +1,46 @@
+{
+    "openai_api_key": {
+        "description": "OpenAI API密钥",
+        "type": "string",
+        "default": "",
+        "hint": "用于调用LLM生成视频总结的API密钥",
+        "obvious_hint": true
+    },
+    "openai_api_url": {
+        "description": "OpenAI API地址",
+        "type": "string",
+        "default": "https://api.openai.com/v1/chat/completions",
+        "hint": "OpenAI兼容的API接口地址"
+    },
+    "openai_model": {
+        "description": "使用的模型",
+        "type": "string",
+        "default": "gpt-3.5-turbo",
+        "hint": "要使用的AI模型名称"
+    },
+    "bilibili_sessdata": {
+        "description": "Bilibili SESSDATA Cookie",
+        "type": "string",
+        "default": "",
+        "hint": "从浏览器Cookie中获取的SESSDATA值，用于访问需要登录的API",
+        "obvious_hint": true
+    },
+    "request_interval": {
+        "description": "请求间隔(秒)",
+        "type": "float",
+        "default": 2.0,
+        "hint": "两次API请求之间的间隔时间，避免触发风控"
+    },
+    "max_subtitle_length": {
+        "description": "最大字幕长度",
+        "type": "int",
+        "default": 8000,
+        "hint": "提交给LLM的字幕最大字符数，超过会被截断"
+    },
+    "summary_prompt": {
+        "description": "总结提示词",
+        "type": "text",
+        "default": "请根据以下视频字幕和简介，生成一个简洁明了的视频内容总结。总结应该包含视频的主要内容、关键信息和要点。请用中文回答。",
+        "hint": "用于指导LLM生成总结的提示词"
+    }
+}
