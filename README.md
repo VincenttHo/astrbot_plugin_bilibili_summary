@@ -15,6 +15,8 @@
 - 🌏 优先选择中文字幕，支持多语言字幕
 - ⚙️ 可配置的API参数和请求间隔
 - 🛡️ 内置风控保护机制
+- 💬 支持引用消息和转发消息解析
+- 🔗 智能提取消息中的bilibili链接
 
 ## 安装方法
 
@@ -67,6 +69,16 @@ git clone https://github.com/VincenttHo/astrbot_plugin_bilibili_summary
 /bs [视频链接或ID]
 ```
 
+### 智能解析模式
+
+```
+# 引用包含bilibili链接的消息并发送
+/bs
+
+# 引用bilibili视频卡片并发送
+/bs
+```
+
 支持多种格式：
 ```
 # BV号
@@ -100,3 +112,4 @@ git clone https://github.com/VincenttHo/astrbot_plugin_bilibili_summary
 ## 版本历史
 
 - v1.0.0: 初始版本，支持多种格式搜索视频并进行总结。
+- v1.0.1: 新增引用消息和转发消息解析功能，支持智能提取bilibili链接

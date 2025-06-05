@@ -1,18 +1,20 @@
 import asyncio
 import re
-from typing import Optional, Dict, Any
+import json
+from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
+import astrbot.api.message_components as Comp
 
 
 @register(
     "astrbot_plugin_bilibili_summary",
-    "Assistant", 
+    "VincenttHo", 
     "Bilibili视频字幕总结插件，获取B站视频字幕并使用LLM生成内容总结",
-    "1.0.0",
+    "1.0.1",
     "https://github.com/VincenttHo/astrbot_plugin_bilibili_summary"
 )
 class BilibiliSummaryPlugin(Star):
@@ -37,6 +39,212 @@ class BilibiliSummaryPlugin(Star):
             logger.warning("Bilibili Summary插件: 未配置Bilibili SESSDATA，可能无法获取字幕")
             
         logger.info("Bilibili Summary插件: 初始化完成")
+
+    def extract_bilibili_links_from_message(self, event: AstrMessageEvent) -> List[str]:
+        """从消息链中提取所有可能的bilibili链接"""
+        links = []
+
+        # 从消息链中提取链接
+        for component in event.message_obj.message:
+            if isinstance(component, Comp.Plain):
+                text = component.text
+                # 查找文本中的bilibili链接
+                extracted = self.extract_links_from_text(text)
+                links.extend(extracted)
+
+            elif isinstance(component, Comp.Reply):
+                # 处理引用消息
+                logger.info(f"检测到引用消息: {component}")
+                reply_links = self.extract_bilibili_from_reply(event, component)
+                links.extend(reply_links)
+
+            elif isinstance(component, Comp.Forward):
+                # 处理转发消息
+                logger.info(f"检测到转发消息: {component}")
+                forward_links = self.extract_bilibili_from_forward_message(component)
+                links.extend(forward_links)
+
+            elif hasattr(component, 'type') and component.type == 'Json':
+                # 处理JSON消息组件（如QQ小程序卡片）
+                logger.info(f"检测到JSON消息组件: {component}")
+                json_links = self.extract_bilibili_from_json_component(component)
+                links.extend(json_links)
+
+        return links
+
+    def extract_links_from_text(self, text: str) -> List[str]:
+        """从文本中提取bilibili链接"""
+        links = []
+        url_patterns = [
+            r'https?://(?:www\.)?bilibili\.com/video/[^\s\'"<>]+',
+            r'https?://m\.bilibili\.com/video/[^\s\'"<>]+',
+            r'https?://b23\.tv/[^\s\'"<>]+',
+            r'BV[a-zA-Z0-9]{10}',
+            r'av\d+',
+        ]
+
+        for pattern in url_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            links.extend(matches)
+
+        return links
+
+    def extract_bilibili_from_json_component(self, json_component) -> List[str]:
+        """从JSON消息组件中提取bilibili链接"""
+        links = []
+
+        try:
+            # 获取JSON数据
+            json_data = None
+            if hasattr(json_component, 'data'):
+                if isinstance(json_component.data, str):
+                    json_data = json.loads(json_component.data)
+                else:
+                    json_data = json_component.data
+
+            if json_data:
+                # 递归搜索JSON中的所有字符串值
+                def search_json_for_links(obj):
+                    found_links = []
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if isinstance(value, str):
+                                # 在字符串值中查找链接
+                                found_links.extend(self.extract_links_from_text(value))
+                            elif isinstance(value, (dict, list)):
+                                found_links.extend(search_json_for_links(value))
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            if isinstance(item, str):
+                                found_links.extend(self.extract_links_from_text(item))
+                            elif isinstance(item, (dict, list)):
+                                found_links.extend(search_json_for_links(item))
+                    return found_links
+
+                links.extend(search_json_for_links(json_data))
+
+                # 特别处理bilibili小程序卡片
+                if isinstance(json_data, dict):
+                    # 检查是否是bilibili相关的小程序
+                    meta = json_data.get('meta', {})
+                    if meta:
+                        detail = meta.get('detail_1', {})
+                        if detail:
+                            # 检查应用名称
+                            title = detail.get('title', '')
+                            if '哔哩哔哩' in title or 'bilibili' in title.lower():
+                                # 提取qqdocurl字段中的链接
+                                qqdocurl = detail.get('qqdocurl', '')
+                                if qqdocurl:
+                                    links.extend(self.extract_links_from_text(qqdocurl))
+
+                                # 提取url字段中的链接
+                                url = detail.get('url', '')
+                                if url:
+                                    links.extend(self.extract_links_from_text(url))
+
+                logger.info(f"从JSON组件中提取到链接: {links}")
+
+        except Exception as e:
+            logger.warning(f"解析JSON消息组件失败: {str(e)}")
+
+        return links
+
+    def extract_bilibili_from_reply(self, event: AstrMessageEvent, reply_component) -> List[str]:
+        """从引用消息中提取bilibili链接"""
+        links = []
+
+        try:
+            # 引用消息的处理方式取决于平台
+            # 对于QQ等平台，引用消息通常包含被引用消息的ID
+            logger.info(f"引用消息详情: {reply_component}")
+
+            # 尝试从引用消息的文本内容中提取链接
+            if hasattr(reply_component, 'text') and reply_component.text:
+                text = reply_component.text
+                url_patterns = [
+                    r'https?://(?:www\.)?bilibili\.com/video/[^\s]+',
+                    r'https?://m\.bilibili\.com/video/[^\s]+',
+                    r'https?://b23\.tv/[^\s]+',
+                    r'BV[a-zA-Z0-9]{10}',
+                    r'av\d+',
+                ]
+
+                for pattern in url_patterns:
+                    matches = re.findall(pattern, text, re.IGNORECASE)
+                    links.extend(matches)
+
+            # 如果引用消息本身包含消息链，递归解析
+            if hasattr(reply_component, 'chain') and reply_component.chain:
+                for sub_component in reply_component.chain:
+                    if isinstance(sub_component, Comp.Plain):
+                        text = sub_component.text
+                        links.extend(self.extract_links_from_text(text))
+                    elif hasattr(sub_component, 'type') and sub_component.type == 'Json':
+                        # 处理引用消息中的JSON组件
+                        json_links = self.extract_bilibili_from_json_component(sub_component)
+                        links.extend(json_links)
+
+            # 兼容旧的message属性
+            elif hasattr(reply_component, 'message') and reply_component.message:
+                for sub_component in reply_component.message:
+                    if isinstance(sub_component, Comp.Plain):
+                        text = sub_component.text
+                        links.extend(self.extract_links_from_text(text))
+                    elif hasattr(sub_component, 'type') and sub_component.type == 'Json':
+                        json_links = self.extract_bilibili_from_json_component(sub_component)
+                        links.extend(json_links)
+
+        except Exception as e:
+            logger.warning(f"解析引用消息失败: {str(e)}")
+
+        return links
+
+    def extract_bilibili_from_forward_message(self, forward_component) -> List[str]:
+        """从转发消息中提取bilibili链接"""
+        links = []
+
+        try:
+            # 转发消息可能包含多种格式的内容
+            logger.info(f"转发消息结构: {forward_component}")
+
+            # 尝试从转发消息的各种属性中提取链接
+            content_sources = []
+
+            if hasattr(forward_component, 'content'):
+                content_sources.append(str(forward_component.content))
+            if hasattr(forward_component, 'text'):
+                content_sources.append(str(forward_component.text))
+            if hasattr(forward_component, 'title'):
+                content_sources.append(str(forward_component.title))
+            if hasattr(forward_component, 'summary'):
+                content_sources.append(str(forward_component.summary))
+
+            # 如果转发消息包含节点列表
+            if hasattr(forward_component, 'nodes'):
+                for node in forward_component.nodes:
+                    if hasattr(node, 'content'):
+                        for content_item in node.content:
+                            if isinstance(content_item, Comp.Plain):
+                                content_sources.append(content_item.text)
+
+            # 在所有内容中查找bilibili链接
+            for content in content_sources:
+                links.extend(self.extract_links_from_text(content))
+
+            # 特殊处理：查找bilibili卡片消息的特征
+            # bilibili分享卡片通常包含特定的文本模式
+            for content in content_sources:
+                # 查找类似 "哔哩哔哩" 或 bilibili 相关的关键词
+                if any(keyword in content.lower() for keyword in ['bilibili', '哔哩哔哩', 'b站']):
+                    # 在这种内容中更积极地查找BV号
+                    additional_links = self.extract_links_from_text(content)
+                    links.extend(additional_links)
+
+        except Exception as e:
+            logger.warning(f"解析转发消息失败: {str(e)}")
+
+        return links
 
     def parse_bilibili_url(self, input_str: str) -> Optional[str]:
         """解析bilibili视频链接，提取BV号或AV号"""
@@ -141,17 +349,32 @@ class BilibiliSummaryPlugin(Star):
     @filter.command("bs")
     async def bilibili_summary(self, event: AstrMessageEvent, video_input: str = None):
         """获取bilibili视频字幕总结"""
+
+        # 如果没有提供参数，尝试从消息中自动提取链接
         if not video_input or not video_input.strip():
-            yield event.plain_result(
-                "使用方法：/bs [视频链接或BV号]\n"
-                "支持格式：\n"
-                "• BV号：BV1jv7YzJED2 或 1jv7YzJED2\n"
-                "• AV号：av123456 或 123456\n"
-                "• 完整链接：https://www.bilibili.com/video/BV1jv7YzJED2\n"
-                "• 手机链接：https://m.bilibili.com/video/BV1jv7YzJED2\n"
-                "• 短链接：https://b23.tv/xxxxx"
-            )
-            return
+            # 从当前消息中提取链接
+            extracted_links = self.extract_bilibili_links_from_message(event)
+            logger.info(f"提取到的所有链接: {extracted_links}")
+
+            if extracted_links:
+                # 如果找到链接，使用第一个
+                video_input = extracted_links[0]
+                logger.info(f"从消息中自动提取到链接: {video_input}")
+            else:
+                # 如果没有找到链接，显示帮助信息
+                yield event.plain_result(
+                    "使用方法：\n"
+                    "1. /bs [视频链接或BV号]\n"
+                    "2. 引用包含bilibili链接的消息后发送 /bs\n"
+                    "3. 转发bilibili视频卡片后发送 /bs\n\n"
+                    "支持格式：\n"
+                    "• BV号：BV1jv7YzJED2 或 1jv7YzJED2\n"
+                    "• AV号：av123456 或 123456\n"
+                    "• 完整链接：https://www.bilibili.com/video/BV1jv7YzJED2\n"
+                    "• 手机链接：https://m.bilibili.com/video/BV1jv7YzJED2\n"
+                    "• 短链接：https://b23.tv/xxxxx"
+                )
+                return
 
         # 解析输入的视频标识
         video_id = self.parse_bilibili_url(video_input.strip())
